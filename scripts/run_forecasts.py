@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import numpy as np
 import pandas as pd
 from prophet import Prophet
 
@@ -19,8 +20,12 @@ results = []
 
 # 3. Loop over each facility + drug_class and forecast
 for (facility, drug), group in df.groupby(['facility', 'drug_class']):
-    model = Prophet()
-    model.fit(group[['ds','y']])
+    # Fit in log space: Prophet's linear trend then models compound (%) growth,
+    # and seasonality becomes multiplicative. log1p keeps zero months valid.
+    # A stiffer trend (default 0.05) stops a few noisy recent months from being
+    # extrapolated, which log space would compound over the 12-month horizon.
+    model = Prophet(changepoint_prior_scale=0.01)
+    model.fit(group[['ds','y']].assign(y=np.log1p(group['y'])))
     
     # Forecast 12 months ahead
     future = model.make_future_dataframe(periods=12, freq='MS')
@@ -34,7 +39,7 @@ for (facility, drug), group in df.groupby(['facility', 'drug_class']):
             'ds':         row['ds'],
             'facility':   facility,
             'drug_class': drug,
-            'yhat':       int(round(row['yhat']))
+            'yhat':       int(round(np.expm1(row['yhat'])))
         })
 
 # 4. Assemble, sort, and write out
